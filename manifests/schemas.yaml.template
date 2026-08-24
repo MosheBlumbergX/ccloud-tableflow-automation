@@ -1,0 +1,77 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${PREFIX}-payments-schema-config
+  namespace: ${NS}
+data:
+  schema: |
+    {
+      "namespace": "io.confluent.examples.tableflow",
+      "type": "record",
+      "name": "Payment",
+      "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "customer_id", "type": "string"},
+        {"name": "amount", "type": "double"},
+        {"name": "currency", "type": "string"},
+        {"name": "created_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${PREFIX}-audit-log-schema-config
+  namespace: ${NS}
+data:
+  schema: |
+    {
+      "namespace": "io.confluent.examples.tableflow",
+      "type": "record",
+      "name": "AuditEvent",
+      "fields": [
+        {"name": "actor", "type": "string"},
+        {"name": "action", "type": "string"},
+        {"name": "occurred_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+      ]
+    }
+---
+# TopicNameStrategy subject for the payments topic. Registering this is what
+# releases the watcher's schema gate.
+apiVersion: platform.confluent.io/v1beta1
+kind: Schema
+metadata:
+  name: ${PREFIX}-payments-value
+  namespace: ${NS}
+spec:
+  name: ${PREFIX}-payments-value
+  compatibilityLevel: BACKWARD
+  data:
+    configRef: ${PREFIX}-payments-schema-config
+    format: avro
+  schemaRegistryRest:
+    endpoint: ${SR_ENDPOINT}
+    authentication:
+      type: basic
+      basic:
+        secretRef: ${SECRET_SR}
+---
+# This topic has a schema but is not labelled for Tableflow, so nothing happens.
+apiVersion: platform.confluent.io/v1beta1
+kind: Schema
+metadata:
+  name: ${PREFIX}-audit-log-value
+  namespace: ${NS}
+spec:
+  name: ${PREFIX}-audit-log-value
+  compatibilityLevel: BACKWARD
+  data:
+    configRef: ${PREFIX}-audit-log-schema-config
+    format: avro
+  schemaRegistryRest:
+    endpoint: ${SR_ENDPOINT}
+    authentication:
+      type: basic
+      basic:
+        secretRef: ${SECRET_SR}

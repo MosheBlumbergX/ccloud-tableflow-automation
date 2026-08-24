@@ -1,0 +1,58 @@
+---
+# Opted in to Tableflow. A schema is registered for this topic, so the watcher
+# enables Tableflow on it.
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaTopic
+metadata:
+  name: ${PREFIX}-payments
+  namespace: ${NS}
+  labels:
+    tableflow.confluent.io/enable: "true"
+spec:
+  replicas: 3
+  partitionCount: 6
+  kafkaRest:
+    endpoint: ${KAFKA_REST}
+    kafkaClusterID: ${CC_CLUSTER_ID}
+    authentication:
+      type: basic
+      basic:
+        secretRef: ${SECRET_KAFKA}
+---
+# Opted in to Tableflow, but no schema is registered for it. The watcher parks
+# this topic in PendingSchema until a subject shows up, which demonstrates the
+# schema gate.
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaTopic
+metadata:
+  name: ${PREFIX}-clickstream
+  namespace: ${NS}
+  labels:
+    tableflow.confluent.io/enable: "true"
+spec:
+  replicas: 3
+  partitionCount: 6
+  kafkaRest:
+    endpoint: ${KAFKA_REST}
+    kafkaClusterID: ${CC_CLUSTER_ID}
+    authentication:
+      type: basic
+      basic:
+        secretRef: ${SECRET_KAFKA}
+---
+# Not labelled, so the watcher ignores it even though it has a schema.
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaTopic
+metadata:
+  name: ${PREFIX}-audit-log
+  namespace: ${NS}
+spec:
+  replicas: 3
+  partitionCount: 3
+  kafkaRest:
+    endpoint: ${KAFKA_REST}
+    kafkaClusterID: ${CC_CLUSTER_ID}
+    authentication:
+      type: basic
+      basic:
+        secretRef: ${SECRET_KAFKA}

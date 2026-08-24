@@ -1,0 +1,121 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${WATCHER_NAME}
+  namespace: ${NS}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${WATCHER_NAME}
+  namespace: ${NS}
+rules:
+  - apiGroups: ["platform.confluent.io"]
+    resources: ["kafkatopics"]
+    verbs: ["get", "list", "watch", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${WATCHER_NAME}
+  namespace: ${NS}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${WATCHER_NAME}
+subjects:
+  - kind: ServiceAccount
+    name: ${WATCHER_NAME}
+    namespace: ${NS}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${WATCHER_NAME}
+  namespace: ${NS}
+  labels:
+    app: ${WATCHER_NAME}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ${WATCHER_NAME}
+  template:
+    metadata:
+      labels:
+        app: ${WATCHER_NAME}
+      annotations:
+        checksum/script: "${SCRIPT_CHECKSUM}"
+    spec:
+      serviceAccountName: ${WATCHER_NAME}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: watcher
+          image: ${WATCHER_IMAGE}
+          command: ["python3", "-u", "/opt/watcher/tableflow_watcher.py"]
+          env:
+            - name: WATCH_NAMESPACE
+              value: "${NS}"
+            - name: CC_ENVIRONMENT_ID
+              value: "${CC_ENVIRONMENT_ID}"
+            - name: CC_CLUSTER_ID
+              value: "${CC_CLUSTER_ID}"
+            - name: SR_ENDPOINT
+              value: "${SR_ENDPOINT}"
+            - name: LABEL_SELECTOR
+              value: "tableflow.confluent.io/enable=true"
+            - name: DEFAULT_TABLE_FORMATS
+              value: "ICEBERG"
+            - name: POLL_INTERVAL_SECONDS
+              value: "${POLL_INTERVAL_SECONDS}"
+            # One JSON object per line. Set to "text" for a readable stream.
+            - name: LOG_FORMAT
+              value: "${LOG_FORMAT}"
+            # Bring Your Own Storage, provisioned by terraform/.
+            - name: TABLEFLOW_STORAGE_KIND
+              value: "AzureDataLakeStorageGen2"
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              value: "${STORAGE_ACCOUNT_NAME}"
+            - name: AZURE_CONTAINER_NAME
+              value: "${STORAGE_CONTAINER_NAME}"
+            - name: PROVIDER_INTEGRATION_ID
+              value: "${PROVIDER_INTEGRATION_ID}"
+          volumeMounts:
+            - name: script
+              mountPath: /opt/watcher
+              readOnly: true
+            - name: schema-registry-credentials
+              mountPath: /mnt/secrets/schema-registry
+              readOnly: true
+            - name: tableflow-credentials
+              mountPath: /mnt/secrets/tableflow
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: script
+          configMap:
+            name: ${SCRIPT_CONFIGMAP}
+            defaultMode: 0555
+        - name: schema-registry-credentials
+          secret:
+            secretName: ${SECRET_SR}
+        - name: tableflow-credentials
+          secret:
+            secretName: ${SECRET_TABLEFLOW}

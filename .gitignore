@@ -1,0 +1,23 @@
+# Written by deploy.sh; holds cluster IDs and derived resource names.
+demo.env
+
+# Rendered from the .template files by envsubst, with endpoints and secret names
+# substituted in. Only the templates are source.
+manifests/*.yaml
+!manifests/*.yaml.template
+
+# Terraform state maps to live, billable infrastructure and contains secrets.
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.tfstate.lock.info
+terraform/*tfplan*
+
+# Real variable files hold API keys; only the example is source.
+terraform/*.tfvars
+terraform/*.tfvars.json
+!terraform/terraform.tfvars.example
+
+__pycache__/
+*.pyc
+.DS_Store

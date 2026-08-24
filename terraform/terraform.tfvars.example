@@ -1,0 +1,30 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is git-ignored.
+
+# Prefixes every created resource in Confluent Cloud, Azure and Kubernetes.
+prefix = "moshe"
+
+# ============================================================================
+# Confluent Cloud
+# ============================================================================
+confluent_cloud_api_key    = "YOUR_CONFLUENT_CLOUD_API_KEY"
+confluent_cloud_api_secret = "YOUR_CONFLUENT_CLOUD_API_SECRET"
+
+# Tableflow is not available on Google Cloud. This example uses Azure so the
+# Iceberg data lands in your own ADLS Gen2 account.
+kafka_cluster_region       = "eastus2"
+kafka_cluster_availability = "SINGLE_ZONE"
+
+# ============================================================================
+# Azure
+# ============================================================================
+# az account show --query tenantId -o tsv
+customer_azure_tenant_id = "YOUR_AZURE_TENANT_ID"
+# az account show --query id -o tsv
+azure_subscription_id = "YOUR_AZURE_SUBSCRIPTION_ID"
+
+storage_container_name = "tableflow-data"
+
+# Leave storage_account_name unset. The default appends a random suffix, which
+# regenerates after every destroy. Reusing a recently destroyed name gives you a
+# stack where Tableflow writes fine but readers cannot fetch the parquet files.
+# storage_account_name = "moshetf3f9c1a02"
