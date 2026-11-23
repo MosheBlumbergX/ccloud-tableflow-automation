@@ -35,6 +35,12 @@ ANN_MESSAGE = f"{ANN_PREFIX}/message"
 ANN_UPDATED = f"{ANN_PREFIX}/last-transition-time"
 ANN_TABLE_FORMATS = f"{ANN_PREFIX}/table-formats"
 ANN_RETENTION_MS = f"{ANN_PREFIX}/retention-ms"
+ANN_ERROR_MODE = f"{ANN_PREFIX}/error-handling-mode"
+ANN_ERROR_TARGET = f"{ANN_PREFIX}/error-handling-log-target"
+
+# Tableflow record failure handling: SUSPEND pauses materialisation, SKIP drops
+# the bad record, LOG sends it to a dead letter queue topic and carries on.
+ERROR_MODES = ("SUSPEND", "SKIP", "LOG")
 
 STATUS_PENDING = "PendingSchema"
 STATUS_ENABLED = "Enabled"
@@ -288,7 +294,13 @@ class TableflowClient:
             url = (payload.get("metadata") or {}).get("next") or None
         return enabled
 
-    def enable(self, topic: str, table_formats: list[str], retention_ms: str | None) -> dict[str, Any]:
+    def enable(
+        self,
+        topic: str,
+        table_formats: list[str],
+        retention_ms: str | None,
+        error_handling: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         spec: dict[str, Any] = {
             "display_name": topic,
             "storage": self.storage,
@@ -296,8 +308,13 @@ class TableflowClient:
             "environment": {"id": self.environment_id},
             "kafka_cluster": {"id": self.cluster_id},
         }
+        config: dict[str, Any] = {}
         if retention_ms:
-            spec["config"] = {"retention_ms": retention_ms}
+            config["retention_ms"] = retention_ms
+        if error_handling:
+            config["error_handling"] = error_handling
+        if config:
+            spec["config"] = config
 
         status, payload = request(
             self.BASE, method="POST", headers={"Authorization": self.auth}, body={"spec": spec}
@@ -325,6 +342,34 @@ def table_formats_for(resource: dict[str, Any], default: list[str]) -> list[str]
     return formats or default
 
 
+def error_handling_block(mode: str, target: str) -> dict[str, str] | None:
+    """Build the API's error_handling object, or None to keep Tableflow's default.
+
+    Raises ValueError for an unknown mode so a typo surfaces instead of
+    silently falling back to SUSPEND.
+    """
+    mode = mode.strip().upper()
+    if not mode:
+        return None
+    if mode not in ERROR_MODES:
+        raise ValueError(f"unsupported error handling mode {mode!r}, expected one of {', '.join(ERROR_MODES)}")
+    block = {"mode": mode}
+    # The target topic only applies to LOG; the API creates it if missing.
+    if mode == "LOG" and target.strip():
+        block["target"] = target.strip()
+    return block
+
+
+def error_handling_for(
+    resource: dict[str, Any], default_mode: str, default_target: str
+) -> dict[str, str] | None:
+    annotations = resource["metadata"].get("annotations") or {}
+    return error_handling_block(
+        annotations.get(ANN_ERROR_MODE) or default_mode,
+        annotations.get(ANN_ERROR_TARGET) or default_target,
+    )
+
+
 class Reconciler:
     def __init__(
         self,
@@ -333,12 +378,16 @@ class Reconciler:
         tableflow: TableflowClient,
         label_selector: str,
         default_formats: list[str],
+        default_error_mode: str = "",
+        default_error_target: str = "",
     ) -> None:
         self.kube = kube
         self.registry = registry
         self.tableflow = tableflow
         self.label_selector = label_selector
         self.default_formats = default_formats
+        self.default_error_mode = default_error_mode
+        self.default_error_target = default_error_target
 
     def _record(self, resource_name: str, status: str, message: str) -> None:
         self.kube.annotate(
@@ -400,6 +449,9 @@ class Reconciler:
 
         formats = table_formats_for(resource, self.default_formats)
         retention = annotations.get(ANN_RETENTION_MS)
+        error_handling = error_handling_for(
+            resource, self.default_error_mode, self.default_error_target
+        )
         log(
             "INFO",
             "schema found, enabling Tableflow",
@@ -407,8 +459,9 @@ class Reconciler:
             subject=subject,
             schema_version=schema.get("version"),
             formats=",".join(formats),
+            error_mode=(error_handling or {}).get("mode", "default"),
         )
-        self.tableflow.enable(topic, formats, retention)
+        self.tableflow.enable(topic, formats, retention, error_handling)
         self._record(
             resource_name,
             STATUS_ENABLED,
@@ -424,6 +477,14 @@ def build_reconciler() -> tuple[Reconciler, int]:
     default_formats = [
         item.strip().upper() for item in env("DEFAULT_TABLE_FORMATS", "ICEBERG").split(",") if item.strip()
     ]
+
+    # Empty means "leave it to Tableflow", which defaults to SUSPEND.
+    error_mode = env("ERROR_HANDLING_MODE").strip().upper()
+    error_target = env("ERROR_HANDLING_LOG_TARGET").strip()
+    try:
+        error_handling_block(error_mode, error_target)
+    except ValueError as exc:
+        raise ConfigError(f"ERROR_HANDLING_MODE: {exc}") from exc
 
     sr_key, sr_secret = read_credentials(env("SR_CREDENTIALS_FILE", "/mnt/secrets/schema-registry/basic.txt"))
     tf_key, tf_secret = read_credentials(env("TABLEFLOW_CREDENTIALS_FILE", "/mnt/secrets/tableflow/basic.txt"))
@@ -453,8 +514,12 @@ def build_reconciler() -> tuple[Reconciler, int]:
         selector=label_selector,
         storage=storage["kind"],
         interval=interval,
+        error_mode=error_mode or "default",
     )
-    return Reconciler(kube, registry, tableflow, label_selector, default_formats), interval
+    reconciler = Reconciler(
+        kube, registry, tableflow, label_selector, default_formats, error_mode, error_target
+    )
+    return reconciler, interval
 
 
 def main() -> int:

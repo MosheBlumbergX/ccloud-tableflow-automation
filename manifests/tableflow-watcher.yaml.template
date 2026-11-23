@@ -72,6 +72,12 @@ spec:
               value: "tableflow.confluent.io/enable=true"
             - name: DEFAULT_TABLE_FORMATS
               value: "ICEBERG"
+            # SUSPEND, SKIP or LOG. Empty keeps Tableflow's default (SUSPEND).
+            - name: ERROR_HANDLING_MODE
+              value: ""
+            # DLQ topic for LOG mode. Empty uses Tableflow's default (error_log).
+            - name: ERROR_HANDLING_LOG_TARGET
+              value: ""
             - name: POLL_INTERVAL_SECONDS
               value: "${POLL_INTERVAL_SECONDS}"
             # One JSON object per line. Set to "text" for a readable stream.

@@ -230,6 +230,13 @@ Two optional annotations override the defaults per topic:
 |---|---|---|
 | `tableflow.confluent.io/table-formats` | `ICEBERG` | Comma-separated table formats |
 | `tableflow.confluent.io/retention-ms` | unset | Snapshot expiration in milliseconds |
+| `tableflow.confluent.io/error-handling-mode` | `ERROR_HANDLING_MODE`, else Tableflow's default (`SUSPEND`) | What happens to a record that cannot be materialised: `SUSPEND` pauses, `SKIP` drops it, `LOG` sends it to a dead letter queue topic |
+| `tableflow.confluent.io/error-handling-log-target` | `ERROR_HANDLING_LOG_TARGET`, else `error_log` | DLQ topic for `LOG` mode (created if missing). Ignored for other modes |
+
+`LOG` only works for topics with Avro or Protobuf schemas, and the Tableflow API
+key's service account needs write access to the DLQ topic or Tableflow pauses.
+These settings are applied when Tableflow is first enabled for a topic. Changing
+an annotation afterwards does not update an already enabled topic.
 
 The watcher writes three more annotations back as status. Do not set these
 yourself:
